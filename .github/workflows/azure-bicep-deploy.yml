@@ -63,6 +63,13 @@ jobs:
           tenant-id:       ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
+      - name: Ensure Resource Group exists
+        run: |
+          az group create \
+            --name     ${{ env.RESOURCE_GROUP }} \
+            --location ${{ env.AZURE_LOCATION }} \
+            --tags     managed-by=github-actions repo=${{ github.repository }}
+
       - name: Validate template against Azure
         uses: azure/arm-deploy@v2
         with:
