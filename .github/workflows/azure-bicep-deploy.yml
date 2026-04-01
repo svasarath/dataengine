@@ -1,6 +1,6 @@
 # ============================================================
 #  GitHub Actions – Azure Storage Account via Bicep
-#  Auth   : OIDC / Federated credentials (no long-lived secrets)
+#  Auth   : OIDC / Federated credentials
 #  Trigger: Push to main (infra/** changes only)
 # ============================================================
 
@@ -14,12 +14,10 @@ on:
       - 'infra/**'
       - '.github/workflows/azure-storage-deploy.yml'
 
-# ── Minimal permissions for OIDC ────────────────────────────
 permissions:
-  id-token: write   # Required for OIDC token exchange
+  id-token: write
   contents: read
 
-# ── Prevent overlapping deployments ─────────────────────────
 concurrency:
   group: azure-storage-deploy
   cancel-in-progress: false
@@ -34,10 +32,10 @@ env:
 jobs:
 
   # ──────────────────────────────────────────────────────────
-  # JOB 1 – Lint & Validate
+  # JOB 1 – Lint only (no Azure connection needed)
   # ──────────────────────────────────────────────────────────
-  validate:
-    name: Lint & Validate
+  lint:
+    name: Lint
     runs-on: ubuntu-latest
 
     steps:
@@ -56,38 +54,13 @@ jobs:
       - name: Lint Bicep file
         run: bicep lint ${{ env.BICEP_FILE }}
 
-      - name: Login to Azure (OIDC)
-        uses: azure/login@v2
-        with:
-          client-id:       ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id:       ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-
-      - name: Ensure Resource Group exists
-        run: |
-          az group create \
-            --name     ${{ env.RESOURCE_GROUP }} \
-            --location ${{ env.AZURE_LOCATION }} \
-            --tags     managed-by=github-actions repo=${{ github.repository }}
-
-      - name: Validate template against Azure
-        uses: azure/arm-deploy@v2
-        with:
-          scope:             resourcegroup
-          subscriptionId:    ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          resourceGroupName: ${{ env.RESOURCE_GROUP }}
-          template:          ${{ env.BICEP_FILE }}
-          parameters:        ${{ env.PARAMS_FILE }}
-          deploymentName:    ${{ env.DEPLOYMENT_NAME }}-validate
-          deploymentMode:    Validate
-
   # ──────────────────────────────────────────────────────────
-  # JOB 2 – What-If (preview changes before apply)
+  # JOB 2 – Validate + What-If (single job, one runner)
   # ──────────────────────────────────────────────────────────
-  what-if:
-    name: What-If Preview
+  validate-and-what-if:
+    name: Validate & What-If
     runs-on: ubuntu-latest
-    needs: validate
+    needs: lint
 
     steps:
       - name: Checkout repository
@@ -107,21 +80,32 @@ jobs:
             --location ${{ env.AZURE_LOCATION }} \
             --tags     managed-by=github-actions repo=${{ github.repository }}
 
+      - name: Validate Bicep template
+        uses: azure/arm-deploy@v2
+        with:
+          scope:             resourcegroup
+          subscriptionId:    ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          resourceGroupName: ${{ env.RESOURCE_GROUP }}
+          template:          ${{ env.BICEP_FILE }}
+          parameters:        ${{ env.PARAMS_FILE }}
+          deploymentName:    ${{ env.DEPLOYMENT_NAME }}-validate
+          deploymentMode:    Validate
+
       - name: Run What-If analysis
         run: |
           az deployment group what-if \
-            --resource-group  ${{ env.RESOURCE_GROUP }} \
-            --template-file   ${{ env.BICEP_FILE }} \
-            --parameters      ${{ env.PARAMS_FILE }} \
-            --result-format   FullResourcePayloads
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --template-file  ${{ env.BICEP_FILE }} \
+            --parameters     ${{ env.PARAMS_FILE }} \
+            --result-format  FullResourcePayloads
 
   # ──────────────────────────────────────────────────────────
-  # JOB 3 – Deploy Storage Account
+  # JOB 3 – Deploy (same pattern: create RG then deploy)
   # ──────────────────────────────────────────────────────────
   deploy:
     name: Deploy Storage Account
     runs-on: ubuntu-latest
-    needs: what-if
+    needs: validate-and-what-if
 
     steps:
       - name: Checkout repository
