@@ -50,15 +50,8 @@ jobs:
           chmod +x ./bicep && sudo mv ./bicep /usr/local/bin/bicep
           bicep --version
 
-      - name: Verify Bicep file exists
-        run: |
-          if [ ! -f "${{ env.BICEP_FILE }}" ]; then
-            echo "❌ ERROR: Bicep file not found at '${{ env.BICEP_FILE }}'"
-            echo "📁 Repository structure:"
-            find . -not -path './.git/*' | head -40
-            exit 1
-          fi
-          echo "✅ Found: ${{ env.BICEP_FILE }}"
+      - name: Debug – show repo structure
+        run: find . -not -path './.git/*' | sort
 
       - name: Lint Bicep file
         run: bicep lint ${{ env.BICEP_FILE }}
